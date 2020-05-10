@@ -33,3 +33,11 @@ debian/*.debhelper.log
 debian/*.substvars
 debian/naemon-livestatus/
 livestatus.cfg
+
+.settings/language.settings.xml
+
+.cproject
+
+.autotools
+
+.project
