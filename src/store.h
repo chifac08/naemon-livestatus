@@ -26,6 +26,7 @@
 #define store_h
 
 #include "nagios.h"
+#include <openssl/ssl.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -38,9 +39,11 @@ extern "C"
     void store_register_downtime(nebstruct_downtime_data *);
     int  store_answer_request(void *input_buffer, void *output_buffer);
     void *create_outputbuffer(int *termination_flag);
+    void *create_outputbuffer_ssl(int *termination_flag, SSL_CTX* ctx);
     void flush_output_buffer(void *ob, int fd);
     void delete_outputbuffer(void *);
     void *create_inputbuffer(int *termination_flag);
+    void *create_inputbuffer_ssl(int *termination_flag, SSL_CTX* ctx);
     void set_inputbuffer_fd(void *, int fd);
     void delete_inputbuffer(void *);
     void queue_add_connection(int cc);

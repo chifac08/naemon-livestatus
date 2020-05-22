@@ -42,6 +42,9 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <syslog.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
 
 #include "nagios.h"
 #include "livestatus.h"
@@ -79,6 +82,7 @@ size_t g_num_client_threads;
 
 #define false 0
 #define true 1
+#define CIPHER_CHARACTER_LENGTH 512
 
 void *g_nagios_handle;
 int g_socket_fd = -1;
@@ -96,6 +100,11 @@ char g_hidden_custom_var_prefix[256];
 int g_service_authorization = AUTH_LOOSE;
 int g_group_authorization = AUTH_STRICT;
 int g_data_encoding = ENCODING_UTF8;
+int g_use_ssl = false;
+char g_ssl_cert_file[4096] = {0};
+char g_ssl_key_file[4096] = {0};
+SSL_CTX* ctx = NULL;
+char* g_cipher_list = NULL;
 
 void *client_thread(void *data __attribute__ ((__unused__)));
 
@@ -183,8 +192,17 @@ static int accept_connection(int sd, int events, void *discard)
 
 void *client_thread(void *data)
 {
-    void *input_buffer = create_inputbuffer(&g_should_terminate);
-    void *output_buffer = create_outputbuffer(&g_should_terminate);
+    void *input_buffer = NULL;
+    void *output_buffer = NULL;
+
+    if(g_use_ssl) {
+        input_buffer = create_inputbuffer_ssl(&g_should_terminate, ctx);
+        output_buffer = create_outputbuffer_ssl(&g_should_terminate, ctx);
+    }
+    else {
+        input_buffer = create_inputbuffer(&g_should_terminate);
+        output_buffer = create_outputbuffer(&g_should_terminate);
+    }
 
     int cc = *((int *)data);
     free(data);
@@ -197,6 +215,7 @@ void *client_thread(void *data)
         while (keepalive && !g_should_terminate) {
             if (g_debug_level >= 2 && requestnr > 1)
                 logger(LG_INFO, "Handling request %d on same connection", requestnr);
+
             keepalive = store_answer_request(input_buffer, output_buffer);
             flush_output_buffer(output_buffer, cc);
             g_counters[COUNTER_REQUESTS]++;
@@ -265,14 +284,149 @@ int open_unix_socket()
 
 }
 
+/*
+ * Init Openssl
+ * @author chifac08
+ */
+static void init_openssl()
+{
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+/*
+ * Create SSL Context
+ * @author chifac08
+ */
+static void create_ssl_context()
+{
+    const SSL_METHOD* method;
+
+    method = SSLv23_server_method();
+    ctx = SSL_CTX_new(method);
+}
+
+/*
+ * Loads ciphers parameter into a 2D char array
+ *
+ * @param chiphers (char*) ... pointer to ciphers list (comma separated)
+ * @author chifac08
+ * @return 0 ... OK
+ *         1 ... NOK
+ */
+static int load_ssl_ciphers(char* ciphers)
+{
+    /*
+    int ret = true;
+    g_ciphers_amount = count_char(ciphers, ',');
+    int cipher_length = CIPHER_CHARACTER_LENGTH*sizeof(char);
+    char* ciphers_copy = NULL;
+    char* token = NULL;
+    int count = 0;
+
+    if(!ciphers)
+        return false;
+
+    ciphers_copy = strdup(ciphers);
+
+    g_cipher_list = (char**)malloc(g_ciphers_amount*sizeof(char*));
+
+    while((token = next_token(&ciphers_copy, ',')) != NULL && count < g_ciphers_amount) {
+       g_cipher_list[count] = (char*)malloc(cipher_length);
+       memset(g_cipher_list[count], 0, cipher_length);
+       strncpy(g_cipher_list[count], token, cipher_length-1);
+       token = NULL;
+       count++;
+    }
+
+    if(ciphers_copy)
+        free(ciphers_copy);
+*/
+    int ret = true;
+    int ciphers_length = count_char(ciphers)*sizeof(char)+1;
+
+    if(!ciphers)
+        return false;
+
+    g_cipher_list = (char*)malloc(ciphers_length);
+    memset(g_cipher_list, 0, ciphers_length);
+    strncpy(g_cipher_list, ciphers, ciphers_length);
+
+    return true;
+}
+
+/*
+ * Free SSL Ciphers list
+ *
+ * @author chifac08
+ */
+static void free_ssl_ciphers()
+{
+    /*
+    int count = 0;
+
+    if(g_cipher_list) {
+        while(count < g_ciphers_amount){
+            if(g_cipher_list[count])
+                free(g_cipher_list[count]);
+            count++;
+        }
+
+        free(g_cipher_list);
+    }
+    */
+
+    if(g_cipher_list) {
+        free(g_cipher_list);
+    }
+}
+
 int open_inet_socket()
 {
     char *socket_addr, *ip_str, *port_str, *save;
     unsigned long port;
 
+    //check if ssl should be enabled
+    if(g_use_ssl) {
+        init_openssl();
+
+        create_ssl_context();
+
+        if(!ctx) {
+            logger(LG_ERR, "Could not create SSL context: %s", strerror(errno));
+            return false;
+        }
+
+        //load supported curves for ctx
+        /*
+        if(SSL_CTX_set_ecdh_auto(ctx, 1)) {
+            logger(LG_ERR, "Could not load supported curves: %s", strerror(errno));
+            return false;
+        }
+*/
+        //load cert and key file
+        if(SSL_CTX_use_certificate_file(ctx, g_ssl_cert_file, SSL_FILETYPE_PEM) <= 0) {
+            logger(LG_ERR, "Could not load certificate file");
+            return false;
+        }
+
+        if(SSL_CTX_use_PrivateKey_file(ctx, g_ssl_key_file, SSL_FILETYPE_PEM) <= 0) {
+            logger(LG_ERR, "Cloud not load key file");
+            return false;
+        }
+
+        //load SSL Ciphers
+        if(g_cipher_list) {
+            if(SSL_CTX_set_cipher_list(ctx, g_cipher_list) <= 0) {
+               logger(LG_INFO, "Could not load cipher suites form config file. Use default one!");
+            }
+        }
+    }
+
     g_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (g_socket_fd < 0) {
         logger(LG_CRIT , "Unable to create socket: %s", strerror(errno));
+        free_ssl_ciphers();
         return false;
     }
 
@@ -285,6 +439,7 @@ int open_inet_socket()
         logger(LG_ERR, "Invalid TCP address for config option 'inet_addr': %s", g_socket_addr);
         if(save)
             free(save);
+        free_ssl_ciphers();
         close(g_socket_fd);
         return false;
     }
@@ -297,6 +452,7 @@ int open_inet_socket()
             port_str, (errno ? strerror(errno) : ""));
         if(save)
             free(save);
+        free_ssl_ciphers();
         close(g_socket_fd);
         return false;
     }
@@ -317,6 +473,7 @@ int open_inet_socket()
             logger(LG_ERR, "Invalid IPv4 address: %s", ip_str);
             if(save)
                 free(save);
+            free_ssl_ciphers();
             close(g_socket_fd);
             return false;
         }
@@ -326,6 +483,7 @@ int open_inet_socket()
         close(g_socket_fd);
         if(save)
             free(save);
+        free_ssl_ciphers();
         return false;
     }
 
@@ -334,6 +492,7 @@ int open_inet_socket()
         close(g_socket_fd);
         if(save)
         	free(save);
+        free_ssl_ciphers();
         return false;
     }
 
@@ -355,6 +514,14 @@ void close_socket()
 {
     if (!g_use_inet_socket)
         unlink(g_socket_addr);
+
+    if(g_use_ssl) {
+        SSL_CTX_free(ctx);
+        EVP_cleanup();
+    }
+
+    free_ssl_ciphers();
+
     iobroker_close(nagios_iobs, g_socket_fd);
     g_socket_fd = -1;
 }
@@ -574,6 +741,8 @@ void check_pnp_path()
 
 void livestatus_parse_arguments(const char *args_orig)
 {
+    char use_ssl_tmp[5] = {0};
+
     /* set default socket path */
     strncpy(g_socket_addr, DEFAULT_SOCKET_PATH, sizeof(g_socket_addr));
 
@@ -588,7 +757,7 @@ void livestatus_parse_arguments(const char *args_orig)
     /* there is no default PNP path */
     g_pnp_path[0] = 0;
 
-    /* also no custom variables is hidden by default */
+    /* also no custom variables is hidden by dchar use_ssl_tmp[5] = {0};efault */
     g_hidden_custom_var_prefix[0] = 0;
 
     if (!args_orig)
@@ -625,6 +794,23 @@ void livestatus_parse_arguments(const char *args_orig)
                  */
                 g_use_inet_socket = true;
                 strncpy(g_socket_addr, right, sizeof(g_socket_addr));
+            }
+            else if(!strcmp(left, "ssl")) {
+                if(!strcmp(right, "on"))
+                    g_use_ssl = true;
+            }
+            else if(!strcmp(left, "cert_file")) {
+                strncpy(g_ssl_cert_file, right, sizeof(g_ssl_cert_file));
+            }
+            else if(!strcmp(left, "key_file")) {
+                strncpy(g_ssl_key_file, right, sizeof(g_ssl_key_file));
+            }
+            else if(!strcmp(left, "ciphers")) {
+                if(!load_ssl_ciphers(right))
+                    logger(LG_INFO, "No ciphers given. Default ciphers will be used!");
+            }
+            else if(!strcmp(left, "min_proto_version")) {
+
             }
             else if (!strcmp(left, "max_cached_messages")) {
                 g_max_cached_messages = strtoul(right, 0, 10);
@@ -730,6 +916,7 @@ void livestatus_parse_arguments(const char *args_orig)
             "in broker_module options. Continuing using '%s' as UNIX socket.",
             g_socket_addr);
         g_use_inet_socket = false;
+        g_use_ssl = false;
     }
 
     free(tmp);

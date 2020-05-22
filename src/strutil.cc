@@ -24,6 +24,7 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 
 #include "strutil.h"
 
@@ -104,4 +105,51 @@ int ends_with(const char *a, const char *b)
     return !strcmp(a + strlen(a) - strlen(b), b);
 }
 
+/**
+ * Counts token in a string with delimiter
+ *
+ * @param char *line  ... line to search in
+ * @param char search ... search character
+ * @author chifac08
+ * @return amount .. amount of chars in line
+ */
+int count_token(char *line, char search)
+{
+    int amount = 0;
+    char* token = NULL;
+    char* line_copy = strdup(line);
+    char* line_save = line_copy;
+
+    while((token = next_token(&line_copy, search)) != NULL) {
+        amount++;
+    }
+
+    if(line_save)
+        free(line_save);
+
+    return amount;
+}
+
+/*
+ * Counts all characters of pointed string
+ *
+ * @param char *line ... pointer to our string
+ * @author chifac08
+ * @return amount of chars
+ */
+int count_char(char *line)
+{
+    int amount = 0;
+    char* line_copy = strdup(line);
+    char* line_save = line_copy;
+
+    while(*line_copy != '\0') {
+        line_copy++;
+    }
+
+    if(line_save)
+        free(line_save);
+
+    return line_copy-line_save;
+}
 

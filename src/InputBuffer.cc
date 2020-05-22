@@ -44,7 +44,18 @@ InputBuffer::InputBuffer(int *termination_flag)
     _read_pointer = &_readahead_buffer[0];         // points to data not yet processed
     _write_pointer = _read_pointer;                // points to end of data in buffer
     _end_pointer = _read_pointer + IB_BUFFER_SIZE; // points ot end of buffer
+    _ctx = NULL;
 }
+
+InputBuffer::InputBuffer(int *termination_flag, SSL_CTX* ctx)
+  : _termination_flag(termination_flag)
+{
+    _read_pointer = &_readahead_buffer[0];         // points to data not yet processed
+    _write_pointer = _read_pointer;                // points to end of data in buffer
+    _end_pointer = _read_pointer + IB_BUFFER_SIZE; // points ot end of buffer
+    _ctx = ctx;
+}
+
 
 void InputBuffer::setFd(int fd)
 {
@@ -181,6 +192,7 @@ int InputBuffer::readData()
 {
     struct timeval start;
     gettimeofday(&start, NULL);
+    SSL* ssl = NULL;
 
     struct timeval tv;
     while (!*_termination_flag)
@@ -197,16 +209,33 @@ int InputBuffer::readData()
 
         int retval = select(_fd + 1, &fds, NULL, NULL, &tv);
         if (retval > 0 && FD_ISSET(_fd, &fds)) {
-            ssize_t r = read(_fd, _write_pointer, _end_pointer - _write_pointer);
-            if (r < 0) {
-                return IB_END_OF_FILE;
-            }
-            else if (r == 0) {
-                return IB_END_OF_FILE;
+            if(_ctx) {
+                ssl = SSL_new(_ctx);
+                SSL_set_fd(ssl, _fd);
+
+                if (SSL_accept(ssl) <= 0) {
+                  logger(LG_ERR, "Could not accept SSL");
+                }
+                else {
+                  SSL_read(ssl, (char*)_write_pointer, _end_pointer - _write_pointer);
+                }
+
+                SSL_shutdown(ssl);
+                SSL_free(ssl);
             }
             else {
-                _write_pointer += r;
-                return IB_DATA_READ;
+                ssize_t r = read(_fd, _write_pointer, _end_pointer - _write_pointer);
+
+                if (r < 0) {
+                    return IB_END_OF_FILE;
+                }
+                else if (r == 0) {
+                    return IB_END_OF_FILE;
+                }
+                else {
+                    _write_pointer += r;
+                    return IB_DATA_READ;
+                }
             }
         }
     }

@@ -28,6 +28,8 @@
 #include "config.h"
 
 #include <string>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 using namespace std;
 
 #define INITIAL_OUTPUT_BUFFER_SIZE 1
@@ -52,9 +54,11 @@ class OutputBuffer
     unsigned _response_code;
     string _error_message;
     bool _do_keepalive;
+    SSL_CTX* _ctx;
 
 public:
     OutputBuffer(int *termination_flag);
+    OutputBuffer(int *termination_flag, SSL_CTX* ctx);
     ~OutputBuffer();
     const char *buffer() { return _buffer; }
     unsigned size() { return _writepos - _buffer; }

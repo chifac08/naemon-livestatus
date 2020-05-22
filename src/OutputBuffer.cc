@@ -41,7 +41,18 @@ OutputBuffer::OutputBuffer(int *termination_flag) :
 {
     _buffer = (char *)malloc(_max_size);
     _end = _buffer + _max_size;
+    _ctx = NULL;
     reset();
+}
+
+OutputBuffer::OutputBuffer(int *termination_flag, SSL_CTX* ctx) :
+_termination_flag(termination_flag),
+_max_size(INITIAL_OUTPUT_BUFFER_SIZE)
+{
+  _buffer = (char *)malloc(_max_size);
+  _end = _buffer + _max_size;
+  _ctx = ctx;
+  reset();
 }
 
 OutputBuffer::~OutputBuffer()
@@ -119,6 +130,7 @@ void OutputBuffer::flush(int fd)
 void OutputBuffer::writeData(int fd, const char *write_from, int to_write)
 {
     struct timeval tv;
+    SSL* ssl = NULL;
     while (!*_termination_flag && to_write > 0)
     {
         tv.tv_sec  = WRITE_TIMEOUT_USEC / 1000000;
@@ -130,15 +142,32 @@ void OutputBuffer::writeData(int fd, const char *write_from, int to_write)
 
         int retval = select(fd + 1, NULL, &fds, NULL, &tv);
         if (retval > 0 && FD_ISSET(fd, &fds)) {
-            ssize_t w = write(fd, write_from, to_write);
-            if (w < 0) {
-                logger(LG_INFO, "Couldn't write %d bytes to client socket: %s", to_write, strerror(errno));
-                break;
+            if(_ctx) {
+                ssl = SSL_new(_ctx);
+                SSL_set_fd(ssl, fd);
+
+                if (SSL_accept(ssl) <= 0) {
+                   logger(LG_ERR, "Could not accept SSL");
+                }
+                else {
+                   SSL_write(ssl, write_from, to_write);
+                }
+
+                SSL_shutdown(ssl);
+                SSL_free(ssl);
             }
-            else if (w == 0)
-                logger(LG_INFO, "Strange: wrote 0 bytes inspite of positive select()");
             else {
-                to_write -= w;
+                ssize_t w = write(fd, write_from, to_write);
+
+                if (w < 0) {
+                    logger(LG_INFO, "Couldn't write %d bytes to client socket: %s", to_write, strerror(errno));
+                    break;
+                }
+                else if (w == 0)
+                    logger(LG_INFO, "Strange: wrote 0 bytes inspite of positive select()");
+                else {
+                    to_write -= w;
+                }
             }
         }
     }

@@ -41,6 +41,8 @@ extern "C" {
     char *save_next_token(char **c, char delim);
 #endif
     char *next_field(char **line);
+    int count_token(char *line, char search);
+    int count_char(char *line);
 #ifdef __cplusplus
 }
 #endif

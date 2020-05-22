@@ -85,6 +85,11 @@ void *create_outputbuffer(int *termination_flag)
     return new OutputBuffer(termination_flag);
 }
 
+void *create_outputbuffer_ssl(int *termination_flag, SSL_CTX* ctx)
+{
+    return new OutputBuffer(termination_flag, ctx);
+}
+
 void flush_output_buffer(void *ob, int fd)
 {
     ((OutputBuffer *)ob)->flush(fd);
@@ -98,6 +103,11 @@ void delete_outputbuffer(void *ob)
 void *create_inputbuffer(int *termination_flag)
 {
     return new InputBuffer(termination_flag);
+}
+
+void *create_inputbuffer_ssl(int *termination_flag, SSL_CTX* ctx)
+{
+    return new InputBuffer(termination_flag, ctx);
 }
 
 void set_inputbuffer_fd(void *ib, int fd)

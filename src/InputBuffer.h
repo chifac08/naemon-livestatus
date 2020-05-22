@@ -41,6 +41,8 @@
 
 #include <string>
 #include <deque>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 using namespace std;
 
 class InputBuffer
@@ -53,10 +55,12 @@ class InputBuffer
     char *_read_pointer;
     char *_write_pointer;
     char *_end_pointer;
+    SSL_CTX* _ctx;
 
     // some buffer
 public:
     InputBuffer(int *termination_flag);
+    InputBuffer(int *termination_flag, SSL_CTX* _ctx);
     void setFd(int fd);
     int readRequest();
     bool moreLines() { return !_requestlines.empty(); }
