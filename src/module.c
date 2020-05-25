@@ -249,7 +249,7 @@ int open_unix_socket()
         return false;
     }
 
-    // Imortant: close on exec -> check plugins must not inherit it!
+    // Important: close on exec -> check plugins must not inherit it!
     if (0 < fcntl(g_socket_fd, F_SETFD, FD_CLOEXEC))
         logger(LG_INFO, "Cannot set FD_CLOEXEC on socket: %s", strerror(errno));
 
@@ -316,32 +316,6 @@ static void create_ssl_context()
  */
 static int load_ssl_ciphers(char* ciphers)
 {
-    /*
-    int ret = true;
-    g_ciphers_amount = count_char(ciphers, ',');
-    int cipher_length = CIPHER_CHARACTER_LENGTH*sizeof(char);
-    char* ciphers_copy = NULL;
-    char* token = NULL;
-    int count = 0;
-
-    if(!ciphers)
-        return false;
-
-    ciphers_copy = strdup(ciphers);
-
-    g_cipher_list = (char**)malloc(g_ciphers_amount*sizeof(char*));
-
-    while((token = next_token(&ciphers_copy, ',')) != NULL && count < g_ciphers_amount) {
-       g_cipher_list[count] = (char*)malloc(cipher_length);
-       memset(g_cipher_list[count], 0, cipher_length);
-       strncpy(g_cipher_list[count], token, cipher_length-1);
-       token = NULL;
-       count++;
-    }
-
-    if(ciphers_copy)
-        free(ciphers_copy);
-*/
     int ret = true;
     int ciphers_length = count_char(ciphers)*sizeof(char)+1;
 
@@ -362,20 +336,6 @@ static int load_ssl_ciphers(char* ciphers)
  */
 static void free_ssl_ciphers()
 {
-    /*
-    int count = 0;
-
-    if(g_cipher_list) {
-        while(count < g_ciphers_amount){
-            if(g_cipher_list[count])
-                free(g_cipher_list[count]);
-            count++;
-        }
-
-        free(g_cipher_list);
-    }
-    */
-
     if(g_cipher_list) {
         free(g_cipher_list);
     }
